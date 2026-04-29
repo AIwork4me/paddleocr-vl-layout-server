@@ -31,7 +31,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 # ─── Configuration ───────────────────────────────────────────────────
-VLLM_SERVER_URL = os.environ.get("VLLM_SERVER_URL", "http://localhost:8000/v1")
+VLLM_SERVER_URL = os.environ.get("VLLM_SERVER_URL", "http://134.199.132.159/v1")
 SERVER_PORT = int(os.environ.get("PORT", "8399"))
 
 # ─── PaddleOCRVL lazy init ──────────────────────────────────────────
@@ -196,14 +196,15 @@ def convert_result(res, page_idx: int, img_array: np.ndarray,
     }
 
 
-def load_pages_from_file(tmp_path: str, file_type: int, file_bytes: bytes) -> dict:
+def load_pages_from_file(tmp_path: str, file_type: int, file_bytes: bytes,
+                         dpi: int = 144) -> dict:
     """Load page images from PDF or image file. Returns {page_idx: np.ndarray}."""
     pages = {}
     if file_type == 0:
         import fitz
         doc = fitz.open(tmp_path)
         for i in range(len(doc)):
-            pix = doc[i].get_pixmap(dpi=150)
+            pix = doc[i].get_pixmap(dpi=dpi)
             arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
                 pix.height, pix.width, pix.n)
             if pix.n == 4:
@@ -217,6 +218,16 @@ def load_pages_from_file(tmp_path: str, file_type: int, file_bytes: bytes) -> di
         if img is not None:
             pages[0] = img
     return pages
+
+
+def render_pages_to_temp_images(pages: dict, tmp_dir: str) -> dict:
+    """Save rendered page images to temp PNG files. Returns {page_idx: path}."""
+    paths = {}
+    for i, arr in pages.items():
+        path = os.path.join(tmp_dir, f"page_{i}.png")
+        cv2.imwrite(path, arr)
+        paths[i] = path
+    return paths
 
 
 # ─── FastAPI App ────────────────────────────────────────────────────
@@ -240,9 +251,26 @@ async def layout_parsing(req: LayoutParsingRequest):
             tmp_path = tmp.name
 
         try:
-            # Run prediction
             kwargs = build_predict_kwargs(req)
-            results = list(pipeline.predict(tmp_path, **kwargs))
+
+            # Load pages for visualization and get dimensions
+            original_pages = load_pages_from_file(tmp_path, req.fileType, file_bytes)
+
+            # For PDFs: render pages to temp images and process each page individually.
+            # PaddleOCRVL skips VLM recognition for some blocks when given PDFs directly,
+            # resulting in empty block_content. Processing rendered images matches AI Studio.
+            if req.fileType == 0 and len(original_pages) > 0:
+                img_tmp_dir = tempfile.mkdtemp(prefix="layout_pages_")
+                try:
+                    page_paths = render_pages_to_temp_images(original_pages, img_tmp_dir)
+                    results = []
+                    for i, img_path in sorted(page_paths.items()):
+                        page_results = list(pipeline.predict(img_path, **kwargs))
+                        results.extend(page_results)
+                finally:
+                    shutil.rmtree(img_tmp_dir, ignore_errors=True)
+            else:
+                results = list(pipeline.predict(tmp_path, **kwargs))
 
             # Post-processing
             if req.restructurePages:
@@ -255,27 +283,30 @@ async def layout_parsing(req: LayoutParsingRequest):
                 except Exception:
                     pass
 
-            # Load original pages for visualization
-            original_pages = load_pages_from_file(tmp_path, req.fileType, file_bytes)
-
-            # Convert results
-            result_tmp_dir = tempfile.mkdtemp(prefix="layout_result_")
-            try:
-                layout_results = []
-                for i, res in enumerate(results):
-                    page_img = original_pages.get(i)
-                    layout_results.append(convert_result(res, i, page_img, result_tmp_dir))
-            finally:
-                shutil.rmtree(result_tmp_dir, ignore_errors=True)
+            # Convert results (each page gets its own temp dir to avoid image accumulation)
+            all_layout_results = []
+            for i, res in enumerate(results):
+                page_img = original_pages.get(i)
+                page_tmp_dir = tempfile.mkdtemp(prefix=f"layout_result_{i}_")
+                try:
+                    all_layout_results.append(
+                        convert_result(res, i, page_img, page_tmp_dir)
+                    )
+                finally:
+                    shutil.rmtree(page_tmp_dir, ignore_errors=True)
 
             # Build response
             data_info = {"type": "pdf" if req.fileType == 0 else "image"}
             if req.fileType == 0:
-                data_info["numPages"] = len(original_pages)
-                data_info["pages"] = [
-                    {"width": int(a.shape[1]), "height": int(a.shape[0])}
-                    for a in original_pages.values()
-                ]
+                data_info["numPages"] = len(all_layout_results)
+                # Use dimensions from PaddleOCRVL results (from prunedResult)
+                data_info["pages"] = []
+                for r in all_layout_results:
+                    pr = r.get("prunedResult", {})
+                    data_info["pages"].append({
+                        "width": pr.get("width", 0),
+                        "height": pr.get("height", 0),
+                    })
             else:
                 for a in original_pages.values():
                     data_info["width"] = int(a.shape[1])
@@ -283,15 +314,15 @@ async def layout_parsing(req: LayoutParsingRequest):
                     break
 
             elapsed = time.time() - start_time
-            print(f"[{log_id}] {elapsed:.1f}s, {len(layout_results)} pages")
+            print(f"[{log_id}] {elapsed:.1f}s, {len(all_layout_results)} pages")
 
             return {
                 "logId": log_id,
                 "errorCode": 0,
                 "errorMsg": "Success",
                 "result": {
-                    "layoutParsingResults": layout_results,
-                    "preprocessedImages": [r["inputImage"] for r in layout_results],
+                    "layoutParsingResults": all_layout_results,
+                    "preprocessedImages": [r["inputImage"] for r in all_layout_results],
                     "dataInfo": data_info,
                 },
             }
