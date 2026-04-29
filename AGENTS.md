@@ -6,7 +6,7 @@
 
 This is a FastAPI server that exposes a `/layout-parsing` endpoint, making a vLLM-hosted PaddleOCR-VL model compatible with the PaddlePaddle AI Studio API format.
 
-**Architecture**: Client → `/layout-parsing` → FastAPI → PaddleOCRVL (local PP-DocLayoutV2 layout detection + remote vLLM PaddleOCR-VL recognition)
+**Architecture**: Client → `/layout-parsing` → FastAPI → PaddleOCRVL (local PP-DocLayoutV3 layout detection + remote vLLM PaddleOCR-VL recognition)
 
 ## Key Files
 
@@ -103,7 +103,7 @@ AI Studio uses camelCase, PaddleOCRVL uses snake_case. The mapping is defined in
 
 - PaddleOCRVL's result objects cannot be serialized with `dict()` — use `res.save_to_json()` and `res.save_to_markdown()` instead
 - PDF files are first saved to a temp file because PaddleOCRVL needs a file path
-- The PP-DocLayoutV2 model is downloaded automatically on first run (~200MB) to `~/.paddlex/official_models/`
+- The PP-DocLayoutV3 model is downloaded automatically on first run (~125MB) to `~/.paddlex/official_models/`
 - Images in responses use base64 data URLs (`data:image/jpeg;base64,...`)
 - The vLLM server must already be running with PaddleOCR-VL model loaded
 
@@ -118,4 +118,4 @@ python test_verify.py --pdf test.pdf
 
 1. **PaddlePaddle + vLLM conflict**: Use separate virtual environments if running both locally. The server only needs `paddleocr[doc-parser]` + `paddlepaddle` on the client side, and vLLM on the GPU server.
 2. **PyMuPDF for PDF**: vLLM's PaddleOCR-VL only accepts images. PDF pages are rendered via PyMuPDF (`fitz`) at 150 DPI before processing.
-3. **Layout detection runs locally**: PP-DocLayoutV2 runs on CPU by default. For GPU acceleration, install `paddlepaddle-gpu`.
+3. **Layout detection runs locally**: PP-DocLayoutV3 (default for PaddleOCR-VL-1.5) runs on CPU by default. For GPU acceleration, install `paddlepaddle-gpu`.

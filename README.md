@@ -16,13 +16,13 @@ This server bridges that gap — deploy it alongside vLLM to get full AI Studio 
                  │                         │
   Client ──────►│  This Server (:8399)    │
   (AI Studio    │     └──► PaddleOCRVL   │
-   format)      │           ├─ PP-DocLayoutV2/V3 (local, CPU)  │
+   format)      │           ├─ PP-DocLayoutV3 (local, CPU)     │
                 │           └─ vLLM /v1/chat/completions (GPU)  │
                 │                         │
                 └─────────────────────────┘
 ```
 
-- **Layout Detection** (PP-DocLayoutV2): Runs locally on CPU, identifies document elements (titles, paragraphs, tables, formulas, images, etc.)
+- **Layout Detection** (PP-DocLayoutV3): Runs locally on CPU, identifies document elements (titles, paragraphs, tables, formulas, images, etc.)
 - **Element Recognition** (PaddleOCR-VL-0.9B): Runs on the remote vLLM server (AMD GPU), performs OCR/table/formula/chart recognition
 
 ## Quick Start
@@ -180,7 +180,7 @@ Returns `{"status": "ok"}`.
 
 1. **Receive** base64-encoded file via `/layout-parsing`
 2. **Decode** and save to temp file (PaddleOCRVL needs a file path)
-3. **Layout Detection** — PP-DocLayoutV2/V3 runs locally to identify document structure
+3. **Layout Detection** — PP-DocLayoutV3 (default for PaddleOCR-VL-1.5) runs locally to identify document structure
 4. **Element Recognition** — Each detected block is sent to the vLLM server for OCR/table/formula recognition
 5. **Post-processing** — `restructure_pages()` merges tables, re-levels headings across pages
 6. **Format** — Convert results to AI Studio response format with Markdown, images, and structured JSON
