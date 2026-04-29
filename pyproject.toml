@@ -1,0 +1,21 @@
+[project]
+name = "paddleocr-vl-layout-server"
+version = "1.0.0"
+description = "FastAPI server exposing /layout-parsing endpoint compatible with PaddlePaddle AI Studio, powered by PaddleOCR-VL + vLLM"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.100",
+    "uvicorn>=0.20",
+    "pydantic>=2.0",
+    "opencv-contrib-python>=4.5",
+    "numpy>=1.24",
+    "paddleocr[doc-parser]>=3.5",
+    "paddlepaddle>=3.0",
+    "PyMuPDF>=1.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "httpx>=0.24",
+]

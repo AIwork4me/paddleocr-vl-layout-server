@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+output/
+output_*/
+*.json
+!pyproject.toml
+*.log
+.env
+.eggs/
+dist/
+build/
